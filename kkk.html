@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>CAPTCHA Quiz Pro</title>
+
+<style>
+body {
+    font-family: Arial;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.container {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    width: 380px;
+    text-align: center;
+}
+
+.captcha {
+    font-size: 26px;
+    letter-spacing: 5px;
+    margin: 10px 0;
+}
+
+input {
+    width: 100%;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #ccc;
+}
+
+button {
+    margin-top: 10px;
+    padding: 10px;
+    width: 100%;
+    border-radius: 10px;
+    border: none;
+    background: #667eea;
+    color: white;
+    cursor: pointer;
+}
+
+.timer { margin-top: 10px; font-weight: bold; }
+
+.option {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 10px;
+    background: #eee;
+    cursor: pointer;
+}
+
+.correct { background: lightgreen !important; }
+.wrong { background: salmon !important; }
+</style>
+</head>
+
+<body>
+
+<audio id="localMusic" loop>
+    <source src="phepmau.mp3" type="audio/mpeg">
+</audio>
+
+<div class="container">
+    <h3>Nhập CAPTCHA</h3>
+
+    <div id="captcha" class="captcha"></div>
+
+    <input id="input" placeholder="Nhập captcha...">
+    <button onclick="checkCaptcha()">Xác nhận</button>
+
+    <div class="timer" id="timer">Thời gian: 8</div>
+
+    <div id="quiz" style="display:none;">
+        <h3 id="question"></h3>
+        <div id="options"></div>
+    </div>
+
+    <p id="result"></p>
+</div>
+
+<script>
+// ===== SOUND EFFECT =====
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(freq, duration){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.frequency.value = freq;
+    osc.type = "sine";
+
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+const soundCorrect = () => playSound(800, 0.2);
+const soundWrong = () => playSound(200, 0.3);
+
+// ===== NHẠC (Đã cập nhật để chạy file mp3) =====
+let musicOn = false;
+function unmuteMusic(){
+    if(!musicOn){
+        const audio = document.getElementById("localMusic");
+        audio.play().catch(err => console.log("Chờ tương tác để phát nhạc"));
+        musicOn = true;
+    }
+}
+
+// ===== DATA =====
+let questions = [
+{q:"Theo cách phân chia phổ biến, ngành Dịch vụ được chia thành mấy nhóm?",a:["Hai nhóm","Ba nhóm","Bốn nhóm","Năm nhóm"],correct:1},
+{q:"Ngành 'Tài chính ngân hàng' thuộc nhóm nào?",a:["Dịch vụ tiêu dùng","Dịch vụ công","Dịch vụ kinh doanh","Dịch vụ nghề nghiệp"],correct:2},
+{q:"Dịch vụ nào KHÔNG thuộc nhóm kinh doanh?",a:["Bưu chính viễn thông","Du lịch","Bất động sản","Bảo hiểm"],correct:1},
+{q:"Vai trò nào sau đây không thuộc vai trò của ngành dịch vụ ?",a:["Thúc đẩy phát triển và phân bố các ngành kinh tế khác","Đẩy nhanh chuyển dịch cơ cấu ngành kinh tế","Ngăn chặn sự kết nối giữa các ngành kinh tế và thị trường quốc tế","Tạo việc làm và nâng cao thu nhập cho người lao động"],correct:2},
+{q:"Ngành dịch vụ giúp đạt mục tiêu nào?",a:["Giảm thu nhập","Nâng cao đời sống","Chặn hội nhập","Hạn chế sản xuất"],correct:1},
+{q:"Đặc điểm nào KHÔNG đúng?",a:["Không vật chất","Liên kết kinh tế","Ít đa dạng","Ứng dụng công nghệ"],correct:2},
+{q:"Vì sao là mắt xích quan trọng?",a:["Hoạt động riêng lẻ","Kết nối ngành","Không cần công nghệ","Không có giá trị"],correct:1},
+{q:"Yếu tố nào sau đây là động lực để phát triển ngành dịch vụ ở nước ta?",a:["Dân cư và nguồn lao động","Trình độ phát triển kinh tế","Thị trường cơ sở vật chất","Chính sách và vị trí địa lí"],correct:0}
+];
+
+let used = [];
+let captcha = "";
+let timeLeft = 8;
+let timer;
+let currentQ;
+
+// ===== ENTER =====
+document.getElementById("input").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){
+        checkCaptcha();
+    }
+});
+
+// ===== CAPTCHA =====
+function generateCaptcha(){
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    captcha = "";
+    let div = document.getElementById("captcha");
+    div.innerHTML = "";
+
+    for(let i=0;i<5;i++){
+        let c = chars[Math.floor(Math.random()*chars.length)];
+        captcha += c;
+
+        let span = document.createElement("span");
+        span.innerText = c;
+        span.style.color = `hsl(${Math.random()*360},70%,50%)`;
+        span.style.transform = `rotate(${Math.random()*20-10}deg)`;
+        span.style.display = "inline-block";
+
+        div.appendChild(span);
+    }
+}
+
+// ===== TIMER =====
+function startTimer(){
+    clearInterval(timer);
+    timeLeft = 8;
+
+    timer = setInterval(()=>{
+        timeLeft--;
+        document.getElementById("timer").innerText = "Thời gian: " + timeLeft;
+
+        if(timeLeft <= 3){
+            document.getElementById("timer").style.color = "red";
+        }
+
+        if(timeLeft <= 0){
+            clearInterval(timer);
+            document.getElementById("result").innerText = "Không kịp rồi!";
+            soundWrong();
+            resetCaptcha();
+        }
+    },1000);
+}
+
+// ===== CHECK CAPTCHA =====
+function checkCaptcha(){
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    unmuteMusic();
+
+    let input = document.getElementById("input").value;
+
+    if(input !== captcha){
+        document.getElementById("result").innerText = "Sai CAPTCHA!";
+        soundWrong();
+        resetCaptcha();
+        return;
+    }
+
+    clearInterval(timer);
+
+    document.getElementById("quiz").style.display = "block";
+    document.getElementById("input").style.display = "none";
+    document.querySelector("button").style.display = "none";
+    document.getElementById("timer").style.display = "none";
+
+    loadQuestion();
+}
+
+// ===== LOAD QUESTION =====
+function loadQuestion(){
+    if(used.length === questions.length){
+        document.getElementById("quiz").innerHTML = "<h3>Hết câu hỏi!</h3>";
+        return;
+    }
+
+    let index;
+    do{
+        index = Math.floor(Math.random()*questions.length);
+    }while(used.includes(index));
+
+    used.push(index);
+    currentQ = questions[index];
+
+    document.getElementById("question").innerText = currentQ.q;
+
+    let optDiv = document.getElementById("options");
+    optDiv.innerHTML = "";
+
+    currentQ.a.forEach((ans,i)=>{
+        let div = document.createElement("div");
+        div.className = "option";
+        div.innerText = String.fromCharCode(65+i) + ". " + ans;
+
+        div.onclick = ()=>checkAnswer(div,i);
+
+        optDiv.appendChild(div);
+    });
+}
+
+// ===== CHECK ANSWER =====
+function checkAnswer(el,i){
+    let opts = document.querySelectorAll(".option");
+    opts.forEach(o=>o.onclick=null);
+
+    if(i === currentQ.correct){
+        el.classList.add("correct");
+        soundCorrect();
+    } else {
+        el.classList.add("wrong");
+        opts[currentQ.correct].classList.add("correct");
+        soundWrong();
+    }
+
+    setTimeout(()=>{
+        resetCaptcha();
+    },5000);
+}
+
+// ===== RESET =====
+function resetCaptcha(){
+    document.getElementById("quiz").style.display = "none";
+    document.getElementById("input").style.display = "block";
+    document.querySelector("button").style.display = "block";
+    document.getElementById("timer").style.display = "block";
+
+    document.getElementById("input").value = "";
+    document.getElementById("result").innerText = "";
+    document.getElementById("timer").style.color = "black";
+
+    generateCaptcha();
+    startTimer();
+}
+
+// ===== START =====
+generateCaptcha();
+startTimer();
+</script>
+
+</body>
+</html>
